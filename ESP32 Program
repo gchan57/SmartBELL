@@ -1,0 +1,153 @@
+#include <Wire.h>
+#include "RTClib.h"
+#include <WiFi.h>
+#include <HTTPClient.h>
+#include <ArduinoJson.h>
+
+// Define the RTC object
+RTC_DS3231 rtc;
+
+// Define your local time offset: IST is UTC + 5 hours 30 minutes
+const int localTimeOffsetHours = 5;
+const int localTimeOffsetMinutes = 30;
+
+// Define the buzzer pin (GPIO 12 in this case; change as necessary)
+const int buzzerPin = 12;
+
+// Define buzzer duration (in milliseconds)
+const int buzzerDuration = 10000; // 10 seconds for ringing
+
+// Wi-Fi credentials
+const char* ssid = "KISHANTH_wifi"; // Replace with your Wi-Fi SSID
+const char* password = "kish@123"; // Replace with your Wi-Fi password
+
+// ThingSpeak API details
+const String thingSpeakChannelID = "2617139"; // Replace with your ThingSpeak Channel ID
+const String apiKey = "6BOLVUK2AJA0DEMK"; // Replace with your ThingSpeak Read API Key for reading data
+
+// Store last buzzed time to avoid repeated buzzing
+bool lastBuzzed[24][60] = {false}; // Array to track if buzzing has occurred at a specific minute of each hour
+
+void setup() {
+    Serial.begin(115200);
+
+    // Initialize the RTC
+    if (!rtc.begin()) {
+        Serial.println("Couldn't find RTC");
+        while (1);
+    }
+
+    // Check if the RTC lost power
+    if (rtc.lostPower()) {
+        Serial.println("RTC lost power, let's set the time!");
+        rtc.adjust(DateTime(F(__DATE__), F(__TIME__))); // Set to compile time
+    }
+
+    // Initialize the buzzer pin as an output
+    pinMode(buzzerPin, OUTPUT);
+    digitalWrite(buzzerPin, LOW); // Ensure buzzer is off initially
+
+    // Connect to Wi-Fi
+    WiFi.begin(ssid, password);
+    while (WiFi.status() != WL_CONNECTED) {
+        delay(500);
+        Serial.print(".");
+    }
+    Serial.println("WiFi connected.");
+}
+
+void loop() {
+    DateTime now = rtc.now(); // Get current UTC time
+
+    // Calculate local time (IST)
+    int localHour = now.hour() + localTimeOffsetHours;
+    int localMinute = now.minute() + localTimeOffsetMinutes;
+
+    // Adjust minutes overflow
+    if (localMinute >= 60) {
+        localMinute -= 60;
+        localHour += 1;
+    }
+
+    // Adjust hours overflow/underflow
+    if (localHour >= 24) {
+        localHour -= 24;
+    } else if (localHour < 0) {
+        localHour += 24;
+    }
+
+    // Check if it's time to buzz based on ThingSpeak data
+    checkThingSpeakAndBuzz(localHour, localMinute);
+
+    delay(1000); // Update every second
+}
+
+void checkThingSpeakAndBuzz(int hour, int minute) {
+    if (WiFi.status() == WL_CONNECTED) { // Check Wi-Fi connection
+        HTTPClient http;
+        String url = "https://api.thingspeak.com/channels/" + thingSpeakChannelID + "/fields/1/last.json?api_key=" + apiKey; 
+        http.begin(url); 
+        
+        http.setTimeout(10000); // Set timeout to 10 seconds
+
+        int httpCode = http.GET(); 
+        if (httpCode > 0) { 
+            String payload = http.getString(); 
+
+            DynamicJsonDocument doc(1024); 
+            DeserializationError error = deserializeJson(doc, payload); 
+
+            if (!error) { 
+                String fieldValue = doc["field1"]; 
+                int numberOfValues = doc["field2"]; // Assuming field2 contains number of values
+                
+                // Split fieldValue into multiple times based on comma delimiter
+                int startIndex = 0;
+                int endIndex = fieldValue.indexOf(',');
+
+                while (endIndex != -1) {
+                    String timeValue = fieldValue.substring(startIndex, endIndex);
+                    processTimeValue(timeValue, hour, minute);
+                    startIndex = endIndex + 1;
+                    endIndex = fieldValue.indexOf(',', startIndex);
+                }
+                
+                // Process last value after exiting loop
+                processTimeValue(fieldValue.substring(startIndex), hour, minute);
+
+            } else {
+                Serial.println("Failed to parse JSON");
+            }
+        } else {
+            Serial.printf("HTTP request failed with code: %d\n", httpCode);
+        }
+
+        http.end(); 
+    } else {
+        Serial.println("WiFi not connected");
+    }
+}
+
+void processTimeValue(String timeValue, int hour, int minute) {
+    int buzzHour = timeValue.substring(0, timeValue.indexOf('.')).toInt();
+    int buzzMinute = timeValue.substring(timeValue.indexOf('.') + 1).toInt();
+
+    Serial.printf("Checking against buzz time: %02d:%02d\n", buzzHour, buzzMinute);
+
+    if ((hour == buzzHour && minute == buzzMinute) && !lastBuzzed[buzzHour][buzzMinute]) {
+        digitalWrite(buzzerPin, HIGH);
+        delay(buzzerDuration); // Buzz for specified duration
+        digitalWrite(buzzerPin, LOW);
+
+        // Mark this hour and minute as having buzzed
+        lastBuzzed[buzzHour][buzzMinute] = true;
+
+        Serial.printf("Buzzed at: %02d:%02d\n", buzzHour, buzzMinute);
+        
+        // Reset only when we move to a new minute or hour.
+        lastBuzzed[buzzHour][buzzMinute] = true;  
+        
+    } else if (hour != buzzHour || minute != buzzMinute) {
+        lastBuzzed[buzzHour][buzzMinute] = false; // Reset when not equal to current time
+    }
+}
