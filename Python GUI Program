@@ -2,21 +2,14 @@ import requests
 import tkinter as tk
 
 # ThingSpeak channel details
-CHANNEL_ID = "Your channel id "
-API_KEY = "Your api key"
+CHANNEL_ID = "2617139"
+API_KEY = "CQWNVV04TTB74YA1"
 
 def send_data(input_string):
     try:
-        # Construct the base URL for the API request
         base_url = f"https://api.thingspeak.com/update?api_key={API_KEY}"
-        
-        # Construct URL with a single field
         url = f"{base_url}&field1={input_string}"
-        
-        # Send the request to ThingSpeak
         response = requests.get(url)
-        
-        # Check the response status
         if response.status_code == 200:
             status_label.config(text="Data sent successfully!")
         else:
@@ -26,40 +19,25 @@ def send_data(input_string):
 
 def on_submit():
     try:
-        # Retrieve input values
         input_string = single_field_entry.get()
-        
-        # Split by comma and validate
         input_values = input_string.split(',')
-        
         if len(input_values) < 2:
             status_label.config(text="Please enter at least one value and the count.")
             return
-        
-        # Get number of elements to send from the last entry
-        num_of_elements = int(input_values[-1])  # Last value is the count
-        
-        # Validate count against actual provided values
+        num_of_elements = int(input_values[-1]) 
         if num_of_elements > len(input_values) - 1:
             status_label.config(text="Number of elements exceeds provided values.")
             return
-        
-        # Create a string of all values excluding the last element (count)
-        values_to_send = ','.join(input_values[:-1][:num_of_elements])  # Join only specified number of elements
-        
-        # Send data as a single string
+        values_to_send = ','.join(input_values[:-1][:num_of_elements])  
         send_data(values_to_send)
     except ValueError:
         status_label.config(text="Please enter valid numbers.")
 
 def reset_data():
-    """Function to reset the ThingSpeak channel data."""
     try:
-        # Reset all fields by sending empty values (or zeros)
         base_url = f"https://api.thingspeak.com/update?api_key={API_KEY}"
         url = f"{base_url}&field1=0"
         response = requests.get(url)
-        
         if response.status_code == 200:
             status_label.config(text="Data reset successfully!")
         else:
@@ -70,27 +48,16 @@ def reset_data():
 def trigger_panic():
     """Function to trigger panic mode on ThingSpeak."""
     send_data('panic')  # Send a unique value to trigger the buzzer for 10-15 seconds.
-
-# Create a GUI using Tkinter
 root = tk.Tk()
 root.title("ThingSpeak Data Entry")
-
-# Create label and entry field for data input
 single_field_label = tk.Label(root, text="Field Values (e.g., 3.00,9.00,2):")
 single_field_label.grid(row=0, column=0, padx=10, pady=10)
-
 single_field_entry = tk.Entry(root)
 single_field_entry.grid(row=0, column=1, padx=10, pady=10)
-
-# Create a submit button
 submit_button = tk.Button(root, text="Submit", command=on_submit)
 submit_button.grid(row=1, column=0, columnspan=2, padx=10, pady=10)
-
-# Create a reset button
 reset_button = tk.Button(root, text="Reset Data", command=reset_data)
 reset_button.grid(row=2, column=0, columnspan=2, padx=10, pady=10)
-
-# Create a status label
 status_label = tk.Label(root, text="")
 status_label.grid(row=4, column=0, columnspan=2, padx=10, pady=10)
 
